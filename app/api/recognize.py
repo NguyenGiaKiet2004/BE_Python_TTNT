@@ -1,9 +1,19 @@
 import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends
+from sqlalchemy.orm import Session
 from app.models.face_model import face_model_instance, FaceModel
-from app.schemas.response import RecognizeResponse
+from app.models.sql_models import User
+from app.core.database import SessionLocal
+from app.schemas.response import RecognitionResponse
 
 router = APIRouter()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 def get_face_model() -> FaceModel:
     """Dependency injection for the FaceModel instance."""
@@ -11,18 +21,16 @@ def get_face_model() -> FaceModel:
 
 @router.post(
     "/recognize",
-    response_model=RecognizeResponse,
+    response_model=RecognitionResponse,
     summary="Recognize a Face"
 )
 async def recognize_face_endpoint(
     file: UploadFile = File(..., description="An image file to check against the database."),
-    model: FaceModel = Depends(get_face_model)
+    model: FaceModel = Depends(get_face_model),
+    db: Session = Depends(get_db)
 ):
     """
     Receives an image, finds the best match in the database, and returns the result.
-    
-    The API call is successful (HTTP 200) even if no match is found.
-    Errors (e.g., no face detected) will result in an HTTP 400 error.
     """
     if file.content_type not in ["image/jpeg", "image/png"]:
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a JPG or PNG image.")
@@ -30,7 +38,14 @@ async def recognize_face_endpoint(
     try:
         image_bytes = await file.read()
         is_match, user_id = model.recognize_face(image_bytes=image_bytes)
-        return RecognizeResponse(match=is_match, user_id=user_id)
+        
+        if is_match and user_id:
+            user = db.query(User).filter(User.user_id == user_id).first()
+            if user:
+                return RecognitionResponse(user_id=user_id, full_name=user.full_name, status="matched")
+        
+        return RecognitionResponse(user_id=None, full_name=None, status="not_matched")
+
     except ValueError as e:
         logging.warning(f"Recognition validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
