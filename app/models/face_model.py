@@ -2,26 +2,86 @@ from typing import Optional, Tuple
 import cv2
 import dlib
 import numpy as np
+import pickle
+import uuid
 import logging
 import os
-from sqlalchemy.orm import Session
 from app.core import config
-from app.models import sql_models
-from app.core.database import SessionLocal
+
+IS_USING_CUDA : bool = dlib.DLIB_USE_CUDA #check if the device supports CUDA, and properly compiled
 
 class FaceModel:
-    """Handles all face detection and recognition business logic."""
+    """
+    Handles all face detection and recognition business logic using GPU-accelerated models.
+    
+    """
 
     def __init__(self):
-        """Initializes Dlib models."""
+        """
+        Initializes Dlib's models (HOG-based face detector, or CNN-based if CUDA is available, shape predictor, and face recognition model).
+        """
+        
+        
+        if not IS_USING_CUDA:
+            try:
+                if not os.path.exists(config.SHAPE_PREDICTOR_PATH):
+                    raise FileNotFoundError(f"Shape predictor model not found at: {config.SHAPE_PREDICTOR_PATH}")
+                if not os.path.exists(config.FACE_REC_MODEL_PATH):
+                    raise FileNotFoundError(f"Face recognition model not found at: {config.FACE_REC_MODEL_PATH}")
+
+                logging.info("Initializing FaceModelV2 (cpu-Only)...")
+                # Load HOG-based face detector (for CPU-only device)
+                self.detector = dlib.get_frontal_face_detector()
+                self.sp = dlib.shape_predictor(config.SHAPE_PREDICTOR_PATH)
+                self.facerec = dlib.face_recognition_model_v1(config.FACE_REC_MODEL_PATH)
+
+                self._parse_detections = lambda dets: dets
+
+                logging.info("FaceModelV2 initialized successfully with CPU-only detector.")
+            except Exception as e:
+                logging.critical(f"Fatal error initializing FaceModelV2: {e}")
+                raise RuntimeError("Cannot initialize Face Detection and Recognition Model.")
+         
+        else:
+            try:
+                logging.info("Initializing FaceModelV2 (GPU-Only)...")
+            
+                # Ensure required model files exist before attempting to load
+                if not os.path.exists(config.CNN_DETECTOR_PATH):
+                    raise FileNotFoundError(f"CNN face detector model not found at: {config.CNN_DETECTOR_PATH}")
+                if not os.path.exists(config.SHAPE_PREDICTOR_PATH):
+                    raise FileNotFoundError(f"Shape predictor model not found at: {config.SHAPE_PREDICTOR_PATH}")
+                if not os.path.exists(config.FACE_REC_MODEL_PATH):
+                    raise FileNotFoundError(f"Face recognition model not found at: {config.FACE_REC_MODEL_PATH}")
+
+                # Load the CNN-based face detector (for GPU)
+                self.detector = dlib.cnn_face_detection_model_v1(config.CNN_DETECTOR_PATH)                
+                # Load the shape predictor and face recognition models
+                self.sp = dlib.shape_predictor(config.SHAPE_PREDICTOR_PATH)
+                self.facerec = dlib.face_recognition_model_v1(config.FACE_REC_MODEL_PATH)
+
+                self._parse_detections = lambda dets: [d.rect for d in dets]
+
+                logging.info("FaceModelV2 initialized successfully with CNN detector.")
+
+            except Exception as e:
+                logging.critical(f"Fatal error initializing FaceModelV2: {e}")
+
+                raise RuntimeError("Could not load dlib's GPU models. Ensure CUDA is installed and model paths are correct.") from e
+
+    def _load_encodings(self) -> dict:
+        """Loads face encodings from the pickle file."""
         try:
-            self.detector = dlib.get_frontal_face_detector()
-            self.sp = dlib.shape_predictor(config.SHAPE_PREDICTOR_PATH)
-            self.facerec = dlib.face_recognition_model_v1(config.FACE_REC_MODEL_PATH)
-            logging.info("FaceModel initialized successfully.")
-        except Exception as e:
-            logging.critical(f"Fatal error initializing FaceModel: {e}")
-            raise RuntimeError("Could not load dlib models.") from e
+            with open(config.ENCODINGS_DB_PATH, 'rb') as f:
+                return pickle.load(f)
+        except FileNotFoundError:
+
+            return {}
+
+    def _save_encodings(self, encodings_data: dict) -> None:
+        """Saves face encodings to the pickle file."""
+        with open(config.ENCODINGS_DB_PATH, 'wb') as f:
+            pickle.dump(encodings_data, f)
 
     def _get_single_face_encoding(self, image_bytes: bytes) -> tuple:
         """
@@ -31,118 +91,117 @@ class FaceModel:
         image_np = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(image_np, cv2.IMREAD_COLOR)
         if img is None:
-            raise ValueError("Could not decode image.")
+            raise ValueError("Could not decode image from bytes.")
 
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
         dets = self.detector(rgb_img, 1)
 
         if len(dets) == 0:
-            raise ValueError("No face detected.")
+            raise ValueError("No face detected in the image.")
         if len(dets) > 1:
-            raise ValueError("Multiple faces detected.")
+            raise ValueError("Multiple faces detected. Only one face is allowed.")
+        
+        rects = self._parse_detections(dets) #This line ò code already distinguish the use ò CUDA
+         
+        face_rect = rects[0]
 
-        face_rect = dets[0]
         shape = self.sp(rgb_img, face_rect)
+        
+
         face_encoding = np.array(self.facerec.compute_face_descriptor(rgb_img, shape))
         
         return face_encoding, img, face_rect
 
-    def register_new_face(self, user_id: int, image_bytes: bytes) -> None:
+    def register_new_face(self, image_bytes: bytes) -> uuid.UUID:
         """
-        Processes an image, extracts encoding, and saves it to the database.
-
-        Args:
-            user_id: The ID of the user to register the face for.
-            image_bytes: The image file in bytes.
+        Processes an image, extracts encoding, saves it, and returns a new user ID.
+        Also saves a cropped image of the detected face.
+        """
+        face_encoding, original_image, face_rect = self._get_single_face_encoding(image_bytes)
         
-        Raises:
-            ValueError: If no face or multiple faces are detected.
-        """
-        db: Session = SessionLocal()
+        known_encodings = self._load_encodings()
+        new_face_id = uuid.uuid4()
+        known_encodings[new_face_id] = face_encoding
+        self._save_encodings(known_encodings)
+        
+        logging.info(f"Successfully registered new face with ID: {new_face_id}")
+
+
         try:
-            face_encoding, original_image, face_rect = self._get_single_face_encoding(image_bytes)
-
-            # Lưu vào database
-            new_face_data = sql_models.FacialData(
-                user_id=user_id,
-                encoding_data=face_encoding.tobytes(), # Convert numpy array to bytes
-                reference_image_url=f"/static/faces/{user_id}.jpg" # Example URL
-            )
-            db.add(new_face_data)
-            db.commit()
-            logging.info(f"Successfully registered new face for user ID: {user_id}")
-
-            # Optionally, save cropped face image to disk
             top, right, bottom, left = face_rect.top(), face_rect.right(), face_rect.bottom(), face_rect.left()
-            cropped_face = original_image[max(0, top-20):bottom+20, max(0, left-20):right+20]
-            filename = f"{user_id}.jpg"
+            padding = 20
+            
+
+            h, w, _ = original_image.shape
+            top = max(0, top - padding)
+            left = max(0, left - padding)
+            bottom = min(h, bottom + padding)
+            right = min(w, right + padding)
+            
+            cropped_face = original_image[top:bottom, left:right]
+            
+            filename = f"{new_face_id}.jpg"
             save_path = os.path.join(config.CROPPED_FACES_DIR, filename)
+            
+
+            os.makedirs(config.CROPPED_FACES_DIR, exist_ok=True)
+            
             cv2.imwrite(save_path, cropped_face)
             logging.info(f"Successfully saved cropped face image to: {save_path}")
+        except Exception as e:
 
-        finally:
-            db.close()
+            logging.error(f"Failed to save cropped face image for {new_face_id}: {e}")
 
-    def recognize_face(self, image_bytes: bytes) -> Tuple[bool, Optional[int]]:
+        return new_face_id
+    
+    def recognize_face(self, image_bytes: bytes) -> Tuple[bool, Optional[uuid.UUID]]:
         """
-        Finds the closest match for a face in the database from an image.
+        Finds the closest match for a face in the database from an image (1-to-N comparison).
         """
-        db: Session = SessionLocal()
-        try:
-            # Lấy tất cả encodings từ database
-            known_encodings_data = db.query(sql_models.FacialData).all()
-            if not known_encodings_data:
-                logging.warning("Encodings database is empty. Cannot perform recognition.")
-                return (False, None)
-            
-            known_ids = [data.user_id for data in known_encodings_data]
-            known_vectors = np.array([np.frombuffer(data.encoding_data) for data in known_encodings_data])
-            
-            # Xử lý ảnh đầu vào
-            unknown_encoding, _, _ = self._get_single_face_encoding(image_bytes)
-            
-            # So sánh với các khuôn mặt đã biết
-            distances = np.linalg.norm(known_vectors - unknown_encoding, axis=1)
-            best_match_index = np.argmin(distances)
-            best_distance = distances[best_match_index]
-            
-            logging.info(f"Best match distance: {best_distance}")
-            
-            if best_distance <= config.FACE_RECOGNITION_TOLERANCE:
-                matched_id = known_ids[best_match_index]
-                logging.info(f"Match found for user ID: {matched_id}")
-                return (True, matched_id)
-            
-            logging.info("No match found within tolerance.")
+        known_encodings_data = self._load_encodings()
+        if not known_encodings_data:
+            logging.warning("Encodings database is empty. Cannot perform recognition.")
             return (False, None)
-            
-        finally:
-            db.close()
 
-    def verify_face(self, image_bytes: bytes, user_id_to_verify: int) -> bool:
-        """Verifies if a face matches a specific known face ID (1-to-1 comparison)."""
-        db: Session = SessionLocal()
-        try:
-            # Lấy encoding của user_id cụ thể từ database
-            known_face_data = db.query(sql_models.FacialData).filter(
-                sql_models.FacialData.user_id == user_id_to_verify
-            ).first()
+        known_ids = list(known_encodings_data.keys())
+        known_vectors = np.array(list(known_encodings_data.values()))
 
-            if known_face_data is None:
-                logging.warning(f"Verification attempted for non-existent user_id: {user_id_to_verify}")
-                return False
-            
-            known_encoding = np.frombuffer(known_face_data.encoding_data)
-            
-            unknown_encoding, _, _ = self._get_single_face_encoding(image_bytes)
-            
-            distance = np.linalg.norm(known_encoding - unknown_encoding)
-            
-            return distance <= config.FACE_RECOGNITION_TOLERANCE
+        unknown_encoding, _, _ = self._get_single_face_encoding(image_bytes)
 
-        finally:
-            db.close()
+        distances = np.linalg.norm(known_vectors - unknown_encoding, axis=1)
+        
+        best_match_index = np.argmin(distances)
+        best_distance = distances[best_match_index]
 
+        logging.info(f"Recognition attempt: Best match distance is {best_distance:.4f}")
 
-# Instantiate the model once to be reused across the application
-face_model_instance = FaceModel()
+        if best_distance <= config.FACE_RECOGNITION_TOLERANCE:
+            matched_id = known_ids[best_match_index]
+            logging.info(f"Match found for user ID: {matched_id}")
+            return (True, matched_id)
+        
+        logging.info("No match found within tolerance.")
+        return (False, None)
+    
+    def verify_face(self, image_bytes: bytes, face_id_to_verify: uuid.UUID) -> bool:
+        """
+        Verifies if a face matches a specific known face ID (1-to-1 comparison).
+        """
+        known_encodings_data = self._load_encodings()
+        known_encoding = known_encodings_data.get(face_id_to_verify)
+
+        if known_encoding is None:
+            logging.warning(f"Verification attempted for non-existent face_id: {face_id_to_verify}")
+            return False
+
+        unknown_encoding, _, _ = self._get_single_face_encoding(image_bytes)
+        
+        distance = np.linalg.norm(known_encoding - unknown_encoding)
+        
+        is_match = distance <= config.FACE_RECOGNITION_TOLERANCE
+        logging.info(f"Verification for {face_id_to_verify}: Distance={distance:.4f}, Match={is_match}")
+        
+        return is_match
+
+face_model = FaceModel()

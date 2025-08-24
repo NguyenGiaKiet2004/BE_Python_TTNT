@@ -2,9 +2,21 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import uuid
 
-class RegisterSuccessResponse(BaseModel):
+class FaceRegisterSuccessResponse(BaseModel):
     """Defines the successful registration response schema."""
-    user_id: uuid.UUID = Field(..., description="The unique ID assigned to the new user.")
+    status: str = "success"
+    message: str = "User registered successfully."
+    user_id: str = Field(..., description="The unique ID assigned to the new user.")
+
+    class Config:
+        # Example for documentation
+        json_schema_extra = {
+            "example": {
+                "status": "success",
+                "message": "User registered successfully.",
+                "user_id": "123e4567-e89b-12d3-a456-426614174000"
+            }
+        }
     
 class VerifyResponse(BaseModel):
     """Defines the verification response schema."""

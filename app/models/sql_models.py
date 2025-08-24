@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum, DateTime, Date, ForeignKey, LargeBinary
+from sqlalchemy import BINARY, Column, Integer, String, Enum, DateTime, Date, ForeignKey, LargeBinary
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -20,7 +20,7 @@ class FacialData(Base):
     __tablename__ = 'FacialData'
     face_id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('Users.user_id'))
-    encoding_data = Column(LargeBinary, nullable=False)
+    encoding_face_UUID = Column(BINARY(16), nullable=False)
     reference_image_url = Column(String(255), nullable=False)
 
 class AttendanceRecord(Base):
