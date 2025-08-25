@@ -113,47 +113,52 @@ class FaceModel:
         
         return face_encoding, img, face_rect
 
-    def register_new_face(self, image_bytes: bytes) -> uuid.UUID:
+    def register_new_face(self, image_bytes: bytes) -> Tuple[bool, Optional[uuid.UUID], Optional[str]]:
         """
         Processes an image, extracts encoding, saves it, and returns a new user ID.
         Also saves a cropped image of the detected face.
         """
-        face_encoding, original_image, face_rect = self._get_single_face_encoding(image_bytes)
-        
-        known_encodings = self._load_encodings()
-        new_face_id = uuid.uuid4()
-        known_encodings[new_face_id] = face_encoding
-        self._save_encodings(known_encodings)
-        
-        logging.info(f"Successfully registered new face with ID: {new_face_id}")
-
-
         try:
-            top, right, bottom, left = face_rect.top(), face_rect.right(), face_rect.bottom(), face_rect.left()
-            padding = 20
+            face_encoding, original_image, face_rect = self._get_single_face_encoding(image_bytes)
             
+            known_encodings = self._load_encodings()
+            new_face_id = uuid.uuid4()
+            known_encodings[new_face_id] = face_encoding
+            self._save_encodings(known_encodings)
+            
+            logging.info(f"Successfully registered new face with ID: {new_face_id}")
 
-            h, w, _ = original_image.shape
-            top = max(0, top - padding)
-            left = max(0, left - padding)
-            bottom = min(h, bottom + padding)
-            right = min(w, right + padding)
-            
-            cropped_face = original_image[top:bottom, left:right]
-            
-            filename = f"{new_face_id}.jpg"
-            save_path = os.path.join(config.CROPPED_FACES_DIR, filename)
-            
 
-            os.makedirs(config.CROPPED_FACES_DIR, exist_ok=True)
-            
-            cv2.imwrite(save_path, cropped_face)
-            logging.info(f"Successfully saved cropped face image to: {save_path}")
-        except Exception as e:
+            try:
+                top, right, bottom, left = face_rect.top(), face_rect.right(), face_rect.bottom(), face_rect.left()
+                padding = 20
+                
 
-            logging.error(f"Failed to save cropped face image for {new_face_id}: {e}")
+                h, w, _ = original_image.shape
+                top = max(0, top - padding)
+                left = max(0, left - padding)
+                bottom = min(h, bottom + padding)
+                right = min(w, right + padding)
+                
+                cropped_face = original_image[top:bottom, left:right]
+                
+                filename = f"{new_face_id}.jpg"
+                save_path = os.path.join(config.CROPPED_FACES_DIR, filename)
+                
 
-        return new_face_id
+                os.makedirs(config.CROPPED_FACES_DIR, exist_ok=True)
+                
+                cv2.imwrite(save_path, cropped_face)
+                logging.info(f"Successfully saved cropped face image to: {save_path}")
+            except Exception as e:
+                
+                logging.error(f"Failed to save cropped face image for {new_face_id}: {e}")
+                return True, new_face_id, None
+        except:
+            logging.error(f"Failed to register face for {new_face_id}: {e}")
+            return False, None, None
+
+        return True, new_face_id, save_path
     
     def recognize_face(self, image_bytes: bytes) -> Tuple[bool, Optional[uuid.UUID]]:
         """

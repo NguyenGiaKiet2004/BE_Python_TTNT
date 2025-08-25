@@ -1,7 +1,8 @@
 import logging
 
 from fastapi import FastAPI
-from app.api import register_face, health, recognize, verify, auth, attendance, user # Thêm auth và attendance vào đâ
+from app.api import face,  health,auth, attendance, user # Thêm auth và attendance vào đâ
+#from app.api import register_face,verify,recognize
 from app.models import schemas
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -12,9 +13,10 @@ app = FastAPI(
     version="2.0.0"
 )
 app.include_router(health.router, prefix="/api/v1", tags=["Monitoring"])
-app.include_router(register_face.router, prefix="/api/v1", tags=["Registration"])
-app.include_router(recognize.router, prefix="/api/v1", tags=["Recognition"])
-app.include_router(verify.router, prefix="/api/v1", tags=["Verification"])
+#app.include_router(register_face.router, prefix="/api/v1", tags=["Registration"])
+#app.include_router(recognize.router, prefix="/api/v1", tags=["Recognition"])
+#app.include_router(verify.router, prefix="/api/v1", tags=["Verification"])
+app.include_router(face.router, prefix="/api/v1")
 
 
 # New APIs

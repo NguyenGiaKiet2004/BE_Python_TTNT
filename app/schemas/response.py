@@ -5,7 +5,7 @@ import uuid
 class FaceRegisterSuccessResponse(BaseModel):
     """Defines the successful registration response schema."""
     status: str = "success"
-    message: str = "User registered successfully."
+    message: str = "New User FACE registered successfully."
     user_id: str = Field(..., description="The unique ID assigned to the new user.")
 
     class Config:
@@ -14,12 +14,14 @@ class FaceRegisterSuccessResponse(BaseModel):
             "example": {
                 "status": "success",
                 "message": "User registered successfully.",
-                "user_id": "123e4567-e89b-12d3-a456-426614174000"
+                "user_id": "XXXXXX"
             }
         }
     
 class VerifyResponse(BaseModel):
-    """Defines the verification response schema."""
+    """
+    Defines the verification response schema.
+    """
     verified: bool = Field(..., description="True if the face matches the given face_id.")
 
 class RecognizeResponse(BaseModel):

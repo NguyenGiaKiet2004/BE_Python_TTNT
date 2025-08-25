@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import List
 from sqlalchemy import text # Thêm dòng này
 from sqlalchemy.orm import Session
-from app.models.face_model import face_model_instance
+from app.models.face_model import face_model
 from app.core import config
 from app.core.database import SessionLocal # Import mới
 
@@ -30,7 +30,7 @@ def perform_health_check(response: Response):
     component_statuses = []
 
     # 1. Check Dlib Models
-    if face_model_instance:
+    if face_model:
         component_statuses.append(ComponentStatus(name="dlib_models", status="ok"))
     else:
         component_statuses.append(ComponentStatus(name="dlib_models", status="error"))
