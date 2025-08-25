@@ -6,9 +6,9 @@ from app.models.face_model import face_model, FaceModel
 from app.schemas.response import FaceRegisterSuccessResponse, RecognitionResponse, VerifyResponse    
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from app.models import sql_models
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_db
 
 router = APIRouter()
 
@@ -16,12 +16,6 @@ def get_face_model() -> FaceModel:
     """Dependency injection for the FaceModel instance."""
     return face_model
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 ############
 # REGISTER FACE
@@ -66,7 +60,7 @@ async def register_face_endpoint(
         if existing_face[0]:
             db: Session = SessionLocal()
             existing_face_data = db.scalars(
-            select(sql_models.FacialData).where(sql_models.FacialData.user_id == user_id & sql_models.FacialData.encoding_face_UUID == existing_face[1].bytes)).first()
+            select(sql_models.FacialData).where(and_(sql_models.FacialData.user_id == user_id, sql_models.FacialData.encoding_face_UUID == existing_face[1].bytes))).first()
             if existing_face_data:
                 raise HTTPException(status_code=409, detail=f"Face already registered for this user ({user_id}).")
 

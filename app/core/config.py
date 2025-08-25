@@ -1,7 +1,8 @@
 import os
 import face_recognition_models as frm
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
-
+load_dotenv()
 # Get paths to models automatically from the installed library
 SHAPE_PREDICTOR_PATH = frm.pose_predictor_model_location()
 FACE_REC_MODEL_PATH = frm.face_recognition_model_location()
@@ -23,11 +24,15 @@ FACE_RECOGNITION_TOLERANCE = 0.6
 # =======================================================
 #Database configuration
 # =======================================================
-class Settings(BaseSettings):
-    DATABASE_URL: str = "sqlite:///./test.db"
-    SECRET_KEY: str = "your-secret-key"
+class Settings(BaseSettings):  
+    # DATABASE_URL: str = os.getenv(key="DATABASE_URL")  
+    # if DATABASE_URL == "":
+    DATABASE_URL: str = "sqlite:///test.db"
+    SECRET_KEY: str = os.getenv("SECRET_KEY") or "your-secret-key"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    class Config:
+        env_file = ".env"
 
 settings = Settings()
 

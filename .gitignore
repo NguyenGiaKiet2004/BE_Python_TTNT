@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 
 .env
+
+ext_tool
+
+te
+test.db
+test.db-journal
