@@ -12,8 +12,9 @@ CNN_DETECTOR_PATH = frm.cnn_face_detector_model_location()
 # Define base directory for data and temporary uploads
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
-
+ENCODINGS_DB_PATH = os.path.join(DATA_DIR, 'encoding.pkl')
 CROPPED_FACES_DIR = os.path.join(DATA_DIR, 'cropped_faces')
+
 # Create necessary directories at startup
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(CROPPED_FACES_DIR, exist_ok=True)

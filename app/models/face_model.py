@@ -83,7 +83,7 @@ class FaceModel:
         with open(config.ENCODINGS_DB_PATH, 'wb') as f:
             pickle.dump(encodings_data, f)
 
-    def _get_single_face_encoding(self, image_bytes: bytes) -> tuple:
+    def _get_single_face_encoding(self, image_bytes: bytes) -> Tuple[any, Optional[np.ndarray], Optional[dlib.rectangle]]:
         """
         A helper function to find exactly one face and return its details:
         the encoding, the original image array, and the face rectangle.
@@ -124,10 +124,6 @@ class FaceModel:
             known_encodings = self._load_encodings()
             new_face_id = uuid.uuid4()
             known_encodings[new_face_id] = face_encoding
-            self._save_encodings(known_encodings)
-            
-            logging.info(f"Successfully registered new face with ID: {new_face_id}")
-
 
             try:
                 top, right, bottom, left = face_rect.top(), face_rect.right(), face_rect.bottom(), face_rect.left()
@@ -150,6 +146,8 @@ class FaceModel:
                 
                 cv2.imwrite(save_path, cropped_face)
                 logging.info(f"Successfully saved cropped face image to: {save_path}")
+                self._save_encodings(known_encodings)          
+                logging.info(f"Successfully registered new face with ID: {new_face_id}")
             except Exception as e:
                 
                 logging.error(f"Failed to save cropped face image for {new_face_id}: {e}")
@@ -159,6 +157,31 @@ class FaceModel:
             return False, None, None
 
         return True, new_face_id, save_path
+    
+    def delete_face(self, face_id_to_delete: uuid.UUID) -> bool:
+        """
+        Remove a Face from encoding database, (but not the cropped picture of the face)
+
+        Args:
+            face_id_to_delete (uuid.UUID): UUID of the Face to be deleted
+        Returns:
+            bool: 
+        """
+        known_encodings = self._load_encodings()
+
+        if face_id_to_delete not in known_encodings:
+            logging.warning(f"Attempted to delete a non-existent face_id: {face_id_to_delete}")
+            return False
+
+        try:
+            del known_encodings[face_id_to_delete]
+            self._save_encodings(known_encodings)
+            logging.info(f"Successfully deleted encoding for face_id: {face_id_to_delete}")
+
+            return True
+        except Exception as e:
+            logging.error(f"An error occurred while deleting face {face_id_to_delete}: {e}")
+            return False
     
     def recognize_face(self, image_bytes: bytes) -> Tuple[bool, Optional[uuid.UUID]]:
         """
@@ -208,5 +231,5 @@ class FaceModel:
         logging.info(f"Verification for {face_id_to_verify}: Distance={distance:.4f}, Match={is_match}")
         
         return is_match
-
+    
 face_model = FaceModel()

@@ -60,16 +60,20 @@ async def register_face_endpoint(
         if existing_face[0]:
             db: Session = SessionLocal()
             existing_face_data = db.scalars(
-            select(sql_models.FacialData).where(and_(sql_models.FacialData.user_id == user_id, sql_models.FacialData.encoding_face_UUID == existing_face[1].bytes))).first()
+            select(sql_models.FacialData).where(and_(sql_models.FacialData.user_id == user_id, sql_models.FacialData.encoding_face_UUID == existing_face[1]))).first()
             if existing_face_data:
                 raise HTTPException(status_code=409, detail=f"Face already registered for this user ({user_id}).")
+            else:
+                raise HTTPException(status_code=409, detail=f"This person's facial data has already existed in database")
 
         else:
-            encoding_UUID = model.register_new_face(image_bytes=image_bytes)
-            db: Session = SessionLocal()
-            db.add(sql_models.FacialData(user_id=user_id, encoding_UUID = encoding_UUID.bytes, )) #note that will store uuid as binary(16), so .bytes will convert uuid from varchar(36) to binary(16)
-            db.commit()      
-            return FaceRegisterSuccessResponse(user_id=user_id)
+            register_face: tuple[bool, uuid.UUID, str] = model.register_new_face(image_bytes=image_bytes)
+            if register_face[0]:
+                db: Session = SessionLocal()
+                db.add(sql_models.FacialData(user_id=user_id, encoding_UUID = register_face[1], reference_image_url=register_face[2])) #note that will store uuid as binary(16), so .bytes will convert uuid from varchar(36) to binary(16)
+                db.commit()      
+                return FaceRegisterSuccessResponse(user_id=user_id)
+            else: raise HTTPException(status_code=400, detail=str(e))
 
     except ValueError as e:
         logging.warning(f"Registration validation error: {e}")
@@ -108,7 +112,7 @@ async def verify_face_endpoint(
         if not get_Face_Data_FromDB:
             raise HTTPException(status_code=404, detail=f"This user {user_id_to_verify} doesn't exist in Face Database")
         image_bytes = await face_image.read()
-        UUID_Object_encoding_UUID = uuid.UUID(bytes=get_Face_Data_FromDB.encoding_face_UUID)
+        UUID_Object_encoding_UUID = uuid.UUID(get_Face_Data_FromDB.encoding_face_UUID)
 
         isFaceVerified = model.verify_face(image_bytes=image_bytes, encoding_UUID=UUID_Object_encoding_UUID)
         return VerifyResponse(verified=isFaceVerified)
@@ -116,9 +120,7 @@ async def verify_face_endpoint(
     except ValueError as e:
         logging.warning(f"Face Identity validation error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logging.error(f"An unexpected error occurred during registration: {e}")
-        raise HTTPException(status_code=500, detail="An internal server error occurred.")
+
     
 @router.post(
     "/recognize",
@@ -141,11 +143,10 @@ async def recognize_face_endpoint(
     try:
         image_bytes = await face_image.read()
         is_match, encoding_UUID = model.recognize_face(image_bytes=image_bytes)
-        encoding_UUID_b = encoding_UUID.bytes
    
         if is_match:
             
-            user_id_from_faceDB = db.scalar(select(sql_models.FacialData.user_id).where(sql_models.FacialData.encoding_face_UUID == encoding_UUID_b))
+            user_id_from_faceDB = db.scalar(select(sql_models.FacialData.user_id).where(sql_models.FacialData.encoding_face_UUID == encoding_UUID))
 
             
             if user_id_from_faceDB:
