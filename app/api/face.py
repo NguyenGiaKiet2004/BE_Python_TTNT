@@ -1,9 +1,10 @@
 import logging
+import time
 from typing import Optional, Tuple
 import uuid
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Form, status   
 from app.models.face_model import face_model, FaceModel
-from app.schemas.response import FaceRegisterSuccessResponse, RecognitionResponse, VerifyResponse    
+from app.schemas.response import FaceRegisterSuccessResponse, RecognitionResponse, VerifyResponse, DeleteFaceResponse    
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
@@ -112,9 +113,12 @@ async def verify_face_endpoint(
         if not get_Face_Data_FromDB:
             raise HTTPException(status_code=404, detail=f"This user {user_id_to_verify} doesn't exist in Face Database")
         image_bytes = await face_image.read()
-        UUID_Object_encoding_UUID = uuid.UUID(get_Face_Data_FromDB.encoding_face_UUID)
+        UUID_Object_encoding_UUID : uuid = (get_Face_Data_FromDB.encoding_face_UUID)
+        start_time = time.perf_counter()
+        isFaceVerified = model.verify_face(image_bytes=image_bytes, face_id_to_verify=UUID_Object_encoding_UUID)
+        end_time = time.perf_counter()
+        total_time = end_time - start_time
 
-        isFaceVerified = model.verify_face(image_bytes=image_bytes, encoding_UUID=UUID_Object_encoding_UUID)
         return VerifyResponse(verified=isFaceVerified)
     
     except ValueError as e:
@@ -161,3 +165,41 @@ async def recognize_face_endpoint(
     except Exception as e:
         logging.error(f"An unexpected error occurred during recognition: {e}")
         raise HTTPException(status_code=500, detail="An internal server error occurred.")
+    
+@router.delete(
+    "/delete-face",
+    response_model=DeleteFaceResponse,
+    tags=["Face Deletation"],
+    status_code=status.HTTP_200_OK
+)
+async def delete_face_endpoint(
+    user_id_to_delete: int = Form(..., description="The ID of the user to delete the face for."),
+    model: FaceModel = Depends(get_face_model),
+    db: Session = Depends(get_db)
+):
+    '''
+
+    '''
+    try:
+        try:
+            user_face_to_delete = db.query(sql_models.FacialData).filter(sql_models.FacialData.user_id == user_id_to_delete).first()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        if not user_face_to_delete:
+            raise HTTPException(status_code=404, detail=f"User with ID {user_id_to_delete} not found in Face database")
+        try:
+            db.delete(user_face_to_delete)
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=str(e))
+        deleted_face = model.delete_face(user_face_to_delete.encoding_face_UUID) 
+        if deleted_face:
+            return DeleteFaceResponse(user_id=user_id_to_delete)
+        else:  
+            raise HTTPException(status_code=500, detail=f"Deletation of user with id: {user_id_to_delete} failed.")
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during face deletion: {e}")
+        raise HTTPException(status_code=500, detail=f"An internal server error occurred: {e}")
+        
+    

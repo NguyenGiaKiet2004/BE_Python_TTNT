@@ -37,3 +37,6 @@ class RecognitionResponse(BaseModel):
     user_id: Optional[int] = None
     full_name: Optional[str] = None
     status: str
+
+class DeleteFaceResponse(BaseModel):  
+    status: str = "success"

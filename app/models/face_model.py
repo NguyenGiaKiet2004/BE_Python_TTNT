@@ -20,8 +20,6 @@ class FaceModel:
         """
         Initializes Dlib's models (HOG-based face detector, or CNN-based if CUDA is available, shape predictor, and face recognition model).
         """
-        
-        
         if not IS_USING_CUDA:
             try:
                 if not os.path.exists(config.SHAPE_PREDICTOR_PATH):

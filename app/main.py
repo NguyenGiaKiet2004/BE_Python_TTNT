@@ -1,7 +1,7 @@
 import logging
 
 from fastapi import FastAPI
-from app.api import face,  health,auth, attendance, user # Thêm auth và attendance vào đâ
+from app.api import face,  health, auth, attendance, user # Thêm auth và attendance vào đâ
 #from app.api import register_face,verify,recognize
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
